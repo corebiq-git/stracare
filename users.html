@@ -1,0 +1,171 @@
+<link rel="stylesheet" href="style.corebiq">
+<div class="module-container">
+    <div class="cbx-inline-0acd0995e2">
+        <h2 class="cbx-inline-c420ff5572">User Access Management</h2>
+        
+        <div class="cbx-inline-fc6ab714f3">
+            <h3 class="cbx-inline-1813b3b5e3">Edit Existing User Access</h3>
+            <p class="cbx-inline-a559cdb2b4">
+                Click "Edit" on a user in the table below to update their role or branch assignment.
+            </p>
+            
+            <div class="cbx-inline-1290199901">
+                <div>
+                    <label class="cbx-inline-006922718c">Registered Email</label>
+                    <input class="cbx-inline-cc3430667f" type="email" id="editUserEmail" placeholder="Select a user below to edit..." disabled>
+                </div>
+                <div>
+                    <label class="cbx-inline-006922718c">Role</label>
+                    <select class="cbx-inline-2bcc1eddb2" id="editUserRole" onchange="window.toggleBranchInput()">
+                        <option value="user">Standard User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="cbx-inline-006922718c">Branch Assignment</label>
+                    <input class="cbx-inline-2bcc1eddb2" type="text" id="editUserBranch" placeholder="e.g. Mahe">
+                </div>
+            </div>
+
+            <button class="cbx-inline-31847d9d9b" id="saveUserBtn" onclick="window.updateUserAccess()">Update User Access</button>
+            <button class="cbx-inline-e5f97e5179" onclick="window.clearUserForm()">Cancel Edit</button>
+            <div class="cbx-inline-4202ca15f2" id="userMsg"></div>
+        </div>
+
+        <div class="dash-table-wrapper">
+            <table class="saas-table cbx-inline-73cb2f828a">
+                <thead>
+                    <tr class="cbx-inline-6861e0eab2">
+                        <th class="cbx-inline-e850a73c75">Email</th>
+                        <th class="cbx-inline-e850a73c75">Role</th>
+                        <th class="cbx-inline-e850a73c75">Branch</th>
+                        <th class="cbx-inline-530d11a4f6">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                    <tr><td class="cbx-inline-1401138699" colspan="4">Loading users...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db } from './firebase-config.js';
+        import { collection, getDocs, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+        // Security check
+        if (!window.currentUser || window.currentUser.role !== 'admin') {
+            document.querySelector('.module-container').innerHTML = '<div class="cbx-inline-d4cf1153bc"><h3>Access Denied. Admins Only.</h3></div>';
+        } else {
+            
+            // Toggle Branch input based on role
+            window.toggleBranchInput = function() {
+                const role = document.getElementById('editUserRole').value;
+                const branchInput = document.getElementById('editUserBranch');
+                if (role === 'admin') {
+                    branchInput.value = 'ALL';
+                    branchInput.disabled = true;
+                    branchInput.style.background = '#f0f0f0';
+                } else {
+                    if (branchInput.value === 'ALL') branchInput.value = '';
+                    branchInput.disabled = false;
+                    branchInput.style.background = 'white';
+                }
+            };
+
+            window.clearUserForm = function() {
+                document.getElementById('editUserEmail').value = '';
+                document.getElementById('editUserRole').value = 'user';
+                document.getElementById('editUserBranch').value = '';
+                window.toggleBranchInput();
+                document.getElementById('userMsg').innerText = '';
+            };
+
+            // Load Users from Firestore
+            window.loadUsers = async function() {
+                const tbody = document.getElementById('usersTableBody');
+                try {
+                    const querySnapshot = await getDocs(collection(db, "users"));
+                    let html = '';
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        const badgeClass = data.role === 'admin' ? 'cbx-role-badge cbx-role-admin' : 'cbx-role-badge cbx-role-user';
+                        
+                        html += `
+                            <tr class="cbx-inline-f608dc7e23">
+                                <td class="cbx-inline-abed17ced7">${doc.id}</td>
+                                <td class="cbx-inline-e850a73c75"><span class="${badgeClass}">${data.role}</span></td>
+                                <td class="cbx-inline-5595db4455">${data.branch || '-'}</td>
+                                <td class="cbx-inline-530d11a4f6">
+                                    <button class="cbx-inline-e122662001" onclick="window.editUserRow('${doc.id}', '${data.role}', '${data.branch}')">Edit</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    tbody.innerHTML = html;
+                } catch(e) {
+                    tbody.innerHTML = `<tr><td class="cbx-inline-8d8569614b" colspan="4">Error loading users: ${e.message}</td></tr>`;
+                }
+            };
+
+            // Prepare form for editing existing user
+            window.editUserRow = function(email, role, branch) {
+                document.getElementById('editUserEmail').value = email;
+                document.getElementById('editUserRole').value = role;
+                document.getElementById('editUserBranch').value = branch;
+                window.toggleBranchInput();
+                
+                // Scroll to top smoothly
+                document.getElementById('main-content').scrollTo({ top: 0, behavior: 'smooth' });
+            };
+
+            // Update Role/Branch ONLY (Cannot create)
+            window.updateUserAccess = async function() {
+                const email = document.getElementById('editUserEmail').value;
+                const role = document.getElementById('editUserRole').value;
+                const branch = document.getElementById('editUserBranch').value.trim();
+                const btn = document.getElementById('saveUserBtn');
+                const msg = document.getElementById('userMsg');
+
+                if(!email) {
+                    msg.innerText = "Please click 'Edit' on a user from the table below first.";
+                    msg.style.color = "var(--danger)";
+                    return;
+                }
+
+                if(!branch) {
+                    msg.innerText = "Branch assignment cannot be empty.";
+                    msg.style.color = "var(--danger)";
+                    return;
+                }
+
+                btn.innerText = "Saving...";
+                btn.disabled = true;
+
+                try {
+                    // updateDoc ensures we ONLY edit existing records, we cannot accidentally create new ones here.
+                    await updateDoc(doc(db, "users", email), {
+                        role: role,
+                        branch: role === 'admin' ? 'ALL' : branch,
+                        updatedAt: new Date()
+                    });
+
+                    msg.innerText = `Successfully updated access for ${email}!`;
+                    msg.style.color = "var(--success)";
+                    
+                    window.clearUserForm();
+                    window.loadUsers();
+
+                } catch(e) {
+                    msg.innerText = "Error: " + e.message;
+                    msg.style.color = "var(--danger)";
+                } finally {
+                    btn.innerText = "Update User Access";
+                    btn.disabled = false;
+                }
+            };
+
+            window.loadUsers();
+        }
+    </script>
+</div>
